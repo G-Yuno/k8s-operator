@@ -105,37 +105,21 @@ spec:
 - Kubernetes 集群 v1.27+
 - [cert-manager](https://cert-manager.io/) v1.14+（用于 webhook 证书管理）
 
-### 1. 安装 cert-manager
-
+### 1. 前置准备
+- ansible ssh公私钥，用的是master节点的
+- ssh-copy-id把master节点的公钥分发到各个节点上
+-在master节点上创建.ssh 的configmap供给控制器去挂载，ns=最终部署的nodegroup-systemshell
 ```bash
-kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.7/cert-manager.yaml
+kubectl create ns nodegroup-system
+kubectl -n nodegroup-system create cm root-ssh --from-file=/root/.ssh
+```
+#### 2. 部署
+```bash
+kubectl apply -f deploy/nodegroup-operator-all.yaml
+kubectl apply -f config\samples\nodegroup.yml
 ```
 
-### 2. 构建并推送镜像
-
-```bash
-make docker-build docker-push IMG=192.168.0.80:15000/nodegroup:v1.0
-```
-
-### 3. 安装 CRD
-
-```bash
-make install
-```
-
-### 4. 部署 Operator
-
-```bash
-make deploy IMG=192.168.0.80:15000/nodegroup:v1.0
-```
-
-### 5. 创建 NodeGroup 实例
-
-```bash
-kubectl apply -f deploy/nodegroup.yml
-```
-
-### 6. 查看状态
+### 3. 查看状态
 
 ```bash
 # 查看 NodeGroup 状态
