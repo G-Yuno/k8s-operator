@@ -1,135 +1,238 @@
-# nodegroup
-// TODO(user): Add simple overview of use/purpose
+# NodeGroup Operator
 
-## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+NodeGroup Operator 是一个 Kubernetes 原生的节点配置管理工具，基于 Kubebuilder 构建，通过 **声明式 CR** 驱动 Ansible Playbook 执行，实现跨节点批量配置同步。
 
-## Getting Started
+## 核心功能
 
-### Prerequisites
-- go version v1.24.6+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
+- **软件包管理**：批量安装/升级指定版本的 deb 包（如 kubelet、containerd）
+- **内核参数调优**：通过 sysctl 批量配置内核参数（如 tcp_keepalive_time、vm.max_map_count）
+- **配置文件分发**：将配置文件（如 containerd config.toml、kubelet config.yaml）同步到目标节点
+- **服务重启**：配置变更后自动重启相关服务（如 kubelet、containerd）
+- **状态追踪**：实时追踪每个节点的同步状态（PendingSync / SyncSuccess / SyncFailed）
 
-### To Deploy on the cluster
-**Build and push your image to the location specified by `IMG`:**
+## 架构设计
 
-```sh
-make docker-build docker-push IMG=<some-registry>/nodegroup:tag
+```mermaid
+graph TB
+    A[NodeGroup CR] --> B[NodeGroup Controller]
+    B --> C[生成 Ansible Playbook YAML]
+    C --> D[为每个 IP 创建 NodeInstance CR]
+    D --> E[NodeInstance Controller]
+    E --> F[通过 Agent 执行 Ansible Playbook]
+    F --> G[目标节点: 192.168.0.81 等]
+    G --> H[执行包安装/配置文件/sysctl/服务重启]
 ```
 
-**NOTE:** This image ought to be published in the personal registry you specified.
-And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
+## CRD 定义
 
-**Install the CRDs into the cluster:**
+### NodeGroup
 
-```sh
+NodeGroup 是集群级资源（Cluster-scoped），定义一组节点的期望配置状态。
+
+```yaml
+apiVersion: config-manager.yuno.org/v1
+kind: NodeGroup
+metadata:
+  name: nodegroup-sample-2
+spec:
+  ips:
+    - 192.168.0.81
+  fileManagers:
+    - path: /etc/containerd/config.toml
+      mode: "0644"
+      content: |-
+        version = 2
+        ...
+    - path: /var/lib/kubelet/config.yaml
+      mode: "0644"
+      content: |-
+        apiVersion: kubelet.config.k8s.io/v1beta1
+        ...
+  packageManagers:
+    - name: containerd.io
+      version: 1.7.21-1
+    - name: kubelet
+      version: 1.30.4-1.1
+  kernelArgsManagers:
+    - key: net.ipv4.tcp_keepalive_time
+      value: "7200"
+    - key: vm.max_map_count
+      value: "262144"
+  postRestartServices:
+    - kubelet
+    - containerd
+```
+
+**状态字段：**
+
+| 字段 | 说明 |
+|------|------|
+| `phase` | PendingSync / Synced / Deleting |
+| `instanceNum` | 总实例数 |
+| `syncSuccessNodeNum` | 同步成功节点数 |
+| `syncFailedNodeNum` | 同步失败节点数 |
+| `pendingSyncNodeNum` | 待同步节点数 |
+
+### NodeInstance
+
+NodeInstance 是集群级资源（Cluster-scoped），由 NodeGroup Controller 自动创建，代表单个节点的同步状态。
+
+```yaml
+apiVersion: config-manager.yuno.org/v1
+kind: NodeInstance
+metadata:
+  name: nodegroup-sample-2-192.168.0.81
+spec:
+  ip: 192.168.0.81
+  nodeGroupName: nodegroup-sample-2
+```
+
+**状态字段：**
+
+| 字段 | 说明 |
+|------|------|
+| `phase` | PendingSync / SyncSuccess / SyncFailed |
+| `lastSynceTime` | 上次同步时间 |
+| `managerDiffDetail` | 变更项详情 |
+
+## 快速开始
+
+### 前置条件
+
+- Go 1.25+
+- Docker 17.03+
+- kubectl（与集群版本匹配）
+- Kubernetes 集群 v1.27+
+- [cert-manager](https://cert-manager.io/) v1.14+（用于 webhook 证书管理）
+
+### 1. 安装 cert-manager
+
+```bash
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.7/cert-manager.yaml
+```
+
+### 2. 构建并推送镜像
+
+```bash
+make docker-build docker-push IMG=192.168.0.80:15000/nodegroup:v1.0
+```
+
+### 3. 安装 CRD
+
+```bash
 make install
 ```
 
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
+### 4. 部署 Operator
 
-```sh
-make deploy IMG=<some-registry>/nodegroup:tag
+```bash
+make deploy IMG=192.168.0.80:15000/nodegroup:v1.0
 ```
 
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-privileges or be logged in as admin.
+### 5. 创建 NodeGroup 实例
 
-**Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
-
-```sh
-kubectl apply -k config/samples/
+```bash
+kubectl apply -f deploy/nodegroup.yml
 ```
 
->**NOTE**: Ensure that the samples has default values to test it out.
+### 6. 查看状态
 
-### To Uninstall
-**Delete the instances (CRs) from the cluster:**
+```bash
+# 查看 NodeGroup 状态
+kubectl get nodegroup
 
-```sh
-kubectl delete -k config/samples/
+# 查看 NodeInstance 状态
+kubectl get nodeinstance
+
+# 查看 Controller 日志
+kubectl logs -n nodegroup-system -l control-plane=controller-manager -f
 ```
 
-**Delete the APIs(CRDs) from the cluster:**
+## 卸载
 
-```sh
+```bash
+# 删除 CR 实例
+kubectl delete -f deploy/nodegroup.yml
+
+# 卸载 Controller
+make undeploy
+
+# 删除 CRD
 make uninstall
 ```
 
-**UnDeploy the controller from the cluster:**
+## 开发指南
 
-```sh
-make undeploy
+### 代码生成
+
+修改 `api/v1/*_types.go` 后，重新生成 CRD 和 DeepCopy：
+
+```bash
+make manifests   # 重新生成 CRD YAML 和 RBAC
+make generate     # 重新生成 zz_generated.deepcopy.go
 ```
 
-## Project Distribution
+### 本地运行
 
-Following the options to release and provide this solution to the users.
-
-### By providing a bundle with all YAML files
-
-1. Build the installer for the image built and published in the registry:
-
-```sh
-make build-installer IMG=<some-registry>/nodegroup:tag
+```bash
+make run
 ```
 
-**NOTE:** The makefile target mentioned above generates an 'install.yaml'
-file in the dist directory. This file contains all the resources built
-with Kustomize, which are necessary to install this project without its
-dependencies.
+### 测试
 
-2. Using the installer
-
-Users can just run 'kubectl apply -f <URL for YAML BUNDLE>' to install
-the project, i.e.:
-
-```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/nodegroup/<tag or branch>/dist/install.yaml
+```bash
+make test    # 单元测试（使用 envtest）
 ```
 
-### By providing a Helm Chart
+### 代码规范
 
-1. Build the chart using the optional helm plugin
-
-```sh
-kubebuilder edit --plugins=helm/v2-alpha
+```bash
+make lint-fix   # 自动修复代码风格
 ```
 
-2. See that a chart was generated under 'dist/chart', and users
-can obtain this solution from there.
+## 项目结构
 
-**NOTE:** If you change the project, you need to update the Helm Chart
-using the same command above to sync the latest changes. Furthermore,
-if you create webhooks, you need to use the above command with
-the '--force' flag and manually ensure that any custom configuration
-previously added to 'dist/chart/values.yaml' or 'dist/chart/manager/manager.yaml'
-is manually re-applied afterwards.
+```
+api/v1/                          # CRD 类型定义
+  nodegroup_types.go             # NodeGroup Spec/Status
+  nodeinstance_types.go           # NodeInstance Spec/Status
+  zz_generated.deepcopy.go       # 自动生成（勿手动编辑）
+internal/
+  controller/
+    nodegroup_controller.go       # NodeGroup 调谐逻辑
+    nodeinstance_controller.go    0 NodeInstance 调谐逻辑
+  webhook/v1/
+    nodegroup_webhook.go          # 校验/默认值 webhook
+cmd/main.go                      # Manager 入口
+cmd/config-monitor/main.go       # 独立 agent 程序
+agent/
+  dpkg.go                         # 软件包安装
+  file.go                         # 文件写入
+  manager.go                      # agent 管理器
+  sysctl.go                       # 内核参数配置
+config/
+  crd/bases/                      # 生成的 CRD YAML（勿手动编辑）
+  rbac/                           # RBAC 配置
+  manager/manager.yaml            # Deployment 配置
+  webhook/                        # Webhook 服务配置
+  certmanager/                    # cert-manager 证书配置
+  default/                        # Kustomize 默认入口
+deploy/
+  Dockerfile                      # 构建镜像用
+  nodegroup.yml                   # 示例 NodeGroup CR
+```
 
-## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
+## 技术栈
 
-**NOTE:** Run `make help` for more information on all potential `make` targets
-
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
+| 组件 | 说明 |
+|------|------|
+| [Kubebuilder](https://book.kubebuilder.io/) | Operator 脚手架框架 |
+| [controller-runtime](https://github.com/kubernetes-sigs/controller-runtime) | Kubernetes 控制器运行时 |
+| [Ansible](https://www.ansible.com/) | 配置自动化执行引擎 |
+| [cert-manager](https://cert-manager.io/) | Webhook TLS 证书管理 |
+| [go-ansible](https://github.com/apenella/go-ansible) | Go Ansible 执行库 |
 
 ## License
 
-Copyright 2026.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+Licensed under the Apache License, Version 2.0.
 
