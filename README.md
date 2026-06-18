@@ -113,7 +113,8 @@ spec:
 kubectl create ns nodegroup-system
 kubectl -n nodegroup-system create cm root-ssh --from-file=/root/.ssh
 ```
-#### 2. 部署
+
+### 2. 部署
 ```bash
 kubectl apply -f deploy/nodegroup-operator-all.yaml
 kubectl apply -f config\samples\nodegroup.yml
