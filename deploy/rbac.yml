@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: node-config-monitor
+  namespace: default
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: node-config-monitor
+rules:
+  - apiGroups:
+      - "config-manager.yuno.org"
+    resources:
+      - nodegroups
+      - nodeinstances
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - "config-manager.yuno.org"
+    resources:
+      - "*"
+    verbs:
+      - "*"
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: node-config-monitor
+subjects:
+  - kind: ServiceAccount
+    name: node-config-monitor
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: node-config-monitor
+  apiGroup: rbac.authorization.k8s.io

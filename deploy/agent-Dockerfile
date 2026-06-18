@@ -1,0 +1,10 @@
+FROM registry.cn-beijing.aliyuncs.com/ning1875_haiwai_image/golang:latest as builder
+WORKDIR /app
+COPY go.mod ./
+COPY go.sum ./
+RUN go env -w GOPROXY=https://goproxy.cn,direct ; go mod download -x
+COPY . .
+RUN CGO_ENABLED=0  GOOS=linux GOARCH=amd64 go build -o node-config-monitor cmd/config-monitor/main.go
+FROM registry.cn-beijing.aliyuncs.com/ning1875_haiwai_image/alpine:latest as runner
+COPY --from=builder /app/node-config-monitor .
+ENTRYPOINT [ "./node-config-monitor" ]

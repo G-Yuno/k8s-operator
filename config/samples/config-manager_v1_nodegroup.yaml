@@ -1,0 +1,10 @@
+apiVersion: config-manager.yuno.org/v1
+kind: NodeGroup
+metadata:
+  labels:
+    app.kubernetes.io/name: nodegroup
+    app.kubernetes.io/managed-by: kustomize
+  name: nodegroup-sample-2
+spec:
+  ips:
+    - 1.1

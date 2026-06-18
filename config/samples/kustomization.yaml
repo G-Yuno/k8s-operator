@@ -1,0 +1,5 @@
+## Append samples of your project ##
+resources:
+- config-manager_v1_nodegroup.yaml
+- config-manager_v1_nodeinstance.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

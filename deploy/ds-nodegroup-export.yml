@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  labels:
+    app.kubernetes.io/component: node-config-monitor
+  name: node-config-monitor
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: node-config-monitor
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: node-config-monitor
+    spec:
+      serviceAccountName: node-config-monitor
+      containers:
+        - name: node-config-monitor
+          args:
+            - -containerHostRootPrefix=/host/root
+            - -dpkgStatusFilepath=/host/root/var/lib/dpkg/status
+            - -procSysPath=/host/proc/sys
+            - -kubeconfig=
+          image: 192.168.0.80:15000/node-config-monitor:v1.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MY_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: MY_NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+          resources:
+            limits:
+              cpu: 250m
+              memory: 180Mi
+            requests:
+              cpu: 102m
+              memory: 180Mi
+          volumeMounts:
+            - mountPath: /host/proc
+              mountPropagation: HostToContainer
+              name: sys
+              readOnly: true
+            - mountPath: /host/root
+              mountPropagation: HostToContainer
+              name: root
+              readOnly: true
+      restartPolicy: Always
+      tolerations:
+        - operator: Exists
+      volumes:
+        - hostPath:
+            path: /proc
+            type: ""
+          name: sys
+        - hostPath:
+            path: /
+            type: ""
+          name: root

@@ -1,0 +1,109 @@
+apiVersion: config-manager.yuno.org/v1
+kind: NodeGroup
+metadata:
+  labels:
+    app.kubernetes.io/name: nodegroup
+    app.kubernetes.io/managed-by: kustomize
+  name: nodegroup-sample-2
+spec:
+  # TODO(user): Add fields here
+  ips:
+    - 192.168.0.81
+  fileManagers:
+    - path: /etc/containerd/config.toml
+      mode: "0644"
+      content: |-
+        version = 2
+        [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+          SystemdCgroup = true
+        [plugins."io.containerd.grpc.v1.cri"]
+          sandbox_image = "registry.aliyuncs.com/google_containers/pause:3.9"
+
+        [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+         runtime_type = "io.containerd.runc.v2"
+        [plugins."io.containerd.grpc.v1.cri".registry]
+          [plugins."io.containerd.grpc.v1.cri".registry.mirrors]
+            [plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
+              endpoint = ["http://192.168.0.80:51000","https://registry.aliyuncs.com"]
+            [plugins."io.containerd.grpc.v1.cri".registry.mirrors."192.168.0.31:15000"]
+              endpoint = ["http://192.168.0.80:15000"]
+          [plugins."io.containerd.grpc.v1.cri".registry.mirrors."ghcr.io"]
+            endpoint = ["http://192.168.0.80:52000"]
+          [plugins."io.containerd.grpc.v1.cri".registry.mirrors."registry.k8s.io"]
+            endpoint = ["http://192.168.0.80:55000"]
+          [plugins."io.containerd.grpc.v1.cri".registry.mirrors."quay.io"]
+            endpoint = ["http://192.168.0.80:56000"]
+            [plugins."io.containerd.grpc.v1.cri".registry.mirrors."k8s.gcr.io"]
+            endpoint = ["https://registry.aliyuncs.com/google_containers"]
+              [plugins."io.containerd.grpc.v1.cri".registry.mirrors."gcr.io"]
+                endpoint = ["https://registry.aliyuncs.com/google_containers"]
+        [metrics]
+          # tcp address!
+          address = "0.0.0.0:1234"
+
+    - path: /var/lib/kubelet/config.yaml
+      mode: "0644"
+      content: |-
+        apiVersion: kubelet.config.k8s.io/v1beta1
+        authentication:
+          anonymous:
+            enabled: false
+          webhook:
+            cacheTTL: 0s
+            enabled: true
+          x509:
+            clientCAFile: /etc/kubernetes/pki/ca.crt
+        authorization:
+          mode: Webhook
+          webhook:
+            cacheAuthorizedTTL: 0s
+            cacheUnauthorizedTTL: 0s
+        cgroupDriver: systemd
+        clusterDNS:
+          - 20.100.0.10
+        clusterDomain: cluster.local
+        containerRuntimeEndpoint: ""
+        cpuManagerReconcilePeriod: 0s
+        evictionPressureTransitionPeriod: 0s
+        fileCheckFrequency: 0s
+        healthzBindAddress: 127.0.0.1
+        healthzPort: 10248
+        httpCheckFrequency: 0s
+        imageMaximumGCAge: 0s
+        imageMinimumGCAge: 0s
+        kind: KubeletConfiguration
+        logging:
+          flushFrequency: 0
+          options:
+            json:
+              infoBufferSize: "0"
+            text:
+              infoBufferSize: "0"
+          verbosity: 0
+        memorySwap: {}
+        nodeStatusReportFrequency: 0s
+        nodeStatusUpdateFrequency: 0s
+        resolvConf: /run/systemd/resolve/resolv.conf
+        rotateCertificates: true
+        runtimeRequestTimeout: 0s
+        shutdownGracePeriod: 0s
+        shutdownGracePeriodCriticalPods: 0s
+        staticPodPath: /etc/kubernetes/manifests
+        streamingConnectionIdleTimeout: 0s
+        syncFrequency: 0s
+        volumeStatsAggPeriod: 0s
+
+
+  packageManagers:
+    - name: containerd.io
+      version: 1.7.21-1
+    - name: kubelet
+      version: 1.30.4-1.1
+  kernelArgsManagers:
+    - key: net.ipv4.tcp_keepalive_time
+      value: "7200"
+    - key: vm.max_map_count
+      value: "262144"
+  postRestartServices:
+    - kubelet
+    - containerd

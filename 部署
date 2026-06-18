@@ -1,0 +1,13 @@
+
+
+
+
+#前置准备
+- ansible ssh公私钥，用的是master节点的
+- ssh-copy-id把master节点的公钥分发到各个节点上
+-在master节点上创建.ssh 的configmap供给控制器去挂载，ns=最终部署的nodegroup-systemshell
+kubectl create ns nodegroup-system
+kubectl -n nodegroup-system create cm root-ssh --from-file=/root/.ssh
+
+#部署
+kubectl apply -f deploy/nodegroup-operator-all.yaml
